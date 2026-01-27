@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { StartGrab, StopGrab } from '../../wailsjs/go/main/App'
+import { StartGrab, StopGrab, GetUserState, SaveUserState } from '../../wailsjs/go/main/App'
 import { EventsOn } from '../../wailsjs/runtime'
 import { useLogger } from './useLogger'
 
@@ -13,6 +13,40 @@ const selectedScheduleId = ref('')
 
 export function useGrabTask() {
     const { pushLog, stringifyError } = useLogger()
+
+    // Config Persistence
+    const saveTaskConfig = async () => {
+        try {
+            const state = await GetUserState() || {}
+            state.preferred_hours = Array.isArray(preferredHours.value) ? preferredHours.value : []
+            state.time_types = Array.isArray(timeTypes.value) ? timeTypes.value : []
+            state.schedule_id = String(selectedScheduleId.value || '')
+            state.target_dates = Array.isArray(targetDates.value) ? targetDates.value : []
+            await SaveUserState(state)
+        } catch (err) {
+            pushLog('error', `保存配置失败: ${stringifyError(err)}`)
+        }
+    }
+
+    const loadTaskConfig = async () => {
+        try {
+            const state = await GetUserState() || {}
+            if (Array.isArray(state.preferred_hours)) {
+                preferredHours.value = state.preferred_hours
+            }
+            if (Array.isArray(state.time_types)) {
+                timeTypes.value = state.time_types
+            }
+            if (state.schedule_id) {
+                selectedScheduleId.value = String(state.schedule_id)
+            }
+            if (Array.isArray(state.target_dates)) {
+                targetDates.value = state.target_dates
+            }
+        } catch (err) {
+            pushLog('error', `加载配置失败: ${stringifyError(err)}`)
+        }
+    }
 
     // Date Management
     const addDateRange = (startDateStr, days) => { // 单选日期模式：仅使用起始日期
@@ -33,6 +67,7 @@ export function useGrabTask() {
         }
         targetDates.value = [dateStr]
         pushLog('success', `已设置日期 ${dateStr}`)
+        saveTaskConfig()
     }
 
     const removeTargetDate = (dateStr) => {
@@ -115,6 +150,8 @@ export function useGrabTask() {
         clearTargetDates,
         startGrab,
         stopGrab,
-        initGrabListeners
+        initGrabListeners,
+        saveTaskConfig,
+        loadTaskConfig
     }
 }
