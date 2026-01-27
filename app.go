@@ -78,6 +78,74 @@ func (a *App) SaveUserState(state map[string]any) error {
 	return core.SaveUserState(state)
 }
 
+func (a *App) LoadGrabConfig() (map[string]any, error) {
+	state, err := core.LoadUserState()
+	if err != nil {
+		return nil, err
+	}
+	// Extract grab-related configuration
+	config := map[string]any{
+		"unit_id":              state["unit_id"],
+		"unit_name":            state["unit_name"],
+		"dep_id":               state["dep_id"],
+		"dep_name":             state["dep_name"],
+		"doctor_id":            state["doctor_id"],
+		"doctor_name":          state["doctor_name"],
+		"member_id":            state["member_id"],
+		"target_dates":         state["target_dates"],
+		"preferred_hours":      state["preferred_hours"],
+		"schedule_id":          state["schedule_id"],
+		"time_types":           state["time_types"],
+		"proxy_submit_enabled": state["proxy_submit_enabled"],
+	}
+	return config, nil
+}
+
+func (a *App) SaveGrabConfig(config map[string]any) error {
+	state, err := core.LoadUserState()
+	if err != nil {
+		return err
+	}
+	// Merge grab configuration into state
+	if val, ok := config["unit_id"]; ok {
+		state["unit_id"] = val
+	}
+	if val, ok := config["unit_name"]; ok {
+		state["unit_name"] = val
+	}
+	if val, ok := config["dep_id"]; ok {
+		state["dep_id"] = val
+	}
+	if val, ok := config["dep_name"]; ok {
+		state["dep_name"] = val
+	}
+	if val, ok := config["doctor_id"]; ok {
+		state["doctor_id"] = val
+	}
+	if val, ok := config["doctor_name"]; ok {
+		state["doctor_name"] = val
+	}
+	if val, ok := config["member_id"]; ok {
+		state["member_id"] = val
+	}
+	if val, ok := config["target_dates"]; ok {
+		state["target_dates"] = val
+	}
+	if val, ok := config["preferred_hours"]; ok {
+		state["preferred_hours"] = val
+	}
+	if val, ok := config["schedule_id"]; ok {
+		state["schedule_id"] = val
+	}
+	if val, ok := config["time_types"]; ok {
+		state["time_types"] = val
+	}
+	if val, ok := config["proxy_submit_enabled"]; ok {
+		state["proxy_submit_enabled"] = val
+	}
+	return core.SaveUserState(state)
+}
+
 func (a *App) ExportLogs(entries []LogEntry) (string, error) {
 	if a.ctx == nil {
 		return "", errors.New("context not ready")

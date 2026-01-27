@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useAuth } from '../../composables/useAuth'
 import { useGrabTask } from '../../composables/useGrabTask'
 import { useHospitalData } from '../../composables/useHospitalData'
+import { useConfigManager } from '../../composables/useConfigManager'
 import GlassCard from '../ui/GlassCard.vue'
 import NeonButton from '../ui/NeonButton.vue'
 import StatusBadge from '../ui/StatusBadge.vue'
@@ -114,6 +115,12 @@ const proxySubmitEnabled = computed(() => {
     }
   }
 
+  const { loadConfiguration, loading: configLoading } = useConfigManager()
+
+  const handleLoadConfig = async () => {
+    await loadConfiguration()
+  }
+
   const emit = defineEmits(['navigate'])
 </script>
 
@@ -158,16 +165,44 @@ const proxySubmitEnabled = computed(() => {
          <div>
             <div class="flex justify-between items-center mb-4">
                <span class="text-slate-400 text-sm">当前配置</span>
-               <StatusBadge :variant="configSummary !== '暂无配置' ? 'info' : 'neutral'">{{ configSummary !== '暂无配置' ? 'Ready' : 'Empty' }}</StatusBadge>
+               <div class="flex gap-2 items-center">
+                  <StatusBadge :variant="configSummary !== '暂无配置' ? 'info' : 'neutral'">{{ configSummary !== '暂无配置' ? 'Ready' : 'Empty' }}</StatusBadge>
+                  <button
+                     @click="handleLoadConfig"
+                     :disabled="configLoading"
+                     class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors disabled:opacity-50"
+                     title="从保存的配置加载"
+                  >
+                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                     </svg>
+                  </button>
+               </div>
             </div>
             <div class="p-4 bg-white/5 rounded-xl border border-white/5 space-y-2">
                <div class="flex justify-between">
-                  <span class="text-slate-500 text-xs uppercase tracking-wider">Target</span>
-                  <span class="text-slate-200 text-sm font-medium">{{ configSummary }}</span>
+                  <span class="text-slate-500 text-xs uppercase tracking-wider">医院</span>
+                  <span class="text-slate-200 text-sm font-medium">{{ userState?.unit_name || '未选择' }}</span>
                </div>
                <div class="flex justify-between">
-                  <span class="text-slate-500 text-xs uppercase tracking-wider">Date</span>
+                  <span class="text-slate-500 text-xs uppercase tracking-wider">科室</span>
+                  <span class="text-slate-200 text-sm font-medium">{{ userState?.dep_name || '未选择' }}</span>
+               </div>
+               <div class="flex justify-between">
+                  <span class="text-slate-500 text-xs uppercase tracking-wider">医生</span>
+                  <span class="text-slate-200 text-sm font-medium">{{ userState?.doctor_name || '不限' }}</span>
+               </div>
+               <div class="flex justify-between">
+                  <span class="text-slate-500 text-xs uppercase tracking-wider">日期</span>
                   <span class="text-slate-200 text-sm font-medium">{{ targetDates[0] || '未选择' }}</span>
+               </div>
+               <div class="flex justify-between">
+                  <span class="text-slate-500 text-xs uppercase tracking-wider">时段</span>
+                  <span class="text-slate-200 text-sm font-medium">{{ preferredHours.length > 0 ? preferredHours.join(', ') : (timeTypes.length > 0 ? timeTypes.map(t => t === 'am' ? '上午' : '下午').join(', ') : '不限') }}</span>
+               </div>
+               <div class="flex justify-between">
+                  <span class="text-slate-500 text-xs uppercase tracking-wider">代理提交</span>
+                  <span class="text-slate-200 text-sm font-medium">{{ proxySubmitEnabled ? '启用' : '禁用' }}</span>
                </div>
             </div>
          </div>
