@@ -42,6 +42,14 @@ export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
 
+export function LoadGrabConfig() {
+  return window['go']['main']['App']['LoadGrabConfig']();
+}
+
+export function SaveGrabConfig(arg1) {
+  return window['go']['main']['App']['SaveGrabConfig'](arg1);
+}
+
 export function SaveUserState(arg1) {
   return window['go']['main']['App']['SaveUserState'](arg1);
 }
