@@ -102,6 +102,9 @@ func (a *App) LoadGrabConfig() (map[string]any, error) {
 }
 
 func (a *App) SaveGrabConfig(config map[string]any) error {
+	if config == nil {
+		return nil // Nothing to save
+	}
 	state, err := core.LoadUserState()
 	if err != nil {
 		return err

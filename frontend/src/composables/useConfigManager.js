@@ -30,10 +30,19 @@ export function useConfigManager() {
             const config = await LoadGrabConfig()
             
             // Apply loaded configuration to current state
-            if (config.unit_id) unitId.value = String(config.unit_id)
-            if (config.dep_id) depId.value = String(config.dep_id)
-            if (config.doctor_id) doctorId.value = String(config.doctor_id)
-            if (config.member_id) memberId.value = String(config.member_id)
+            // Check for existence in config object, not truthiness of value
+            if ('unit_id' in config && config.unit_id != null) {
+                unitId.value = String(config.unit_id)
+            }
+            if ('dep_id' in config && config.dep_id != null) {
+                depId.value = String(config.dep_id)
+            }
+            if ('doctor_id' in config && config.doctor_id != null) {
+                doctorId.value = String(config.doctor_id)
+            }
+            if ('member_id' in config && config.member_id != null) {
+                memberId.value = String(config.member_id)
+            }
             
             if (Array.isArray(config.target_dates)) {
                 targetDates.value = config.target_dates
@@ -44,7 +53,7 @@ export function useConfigManager() {
             if (Array.isArray(config.time_types)) {
                 timeTypes.value = config.time_types
             }
-            if (config.schedule_id) {
+            if ('schedule_id' in config && config.schedule_id != null) {
                 selectedScheduleId.value = String(config.schedule_id)
             }
 
@@ -62,16 +71,16 @@ export function useConfigManager() {
         loading.value = true
         try {
             const config = {
-                unit_id: unitId.value,
-                unit_name: selectedHospitalName.value,
-                dep_id: depId.value,
-                dep_name: selectedDepName.value,
-                doctor_id: doctorId.value,
-                doctor_name: selectedDoctorName.value,
-                member_id: memberId.value,
+                unit_id: unitId.value || '',
+                unit_name: selectedHospitalName.value || '',
+                dep_id: depId.value || '',
+                dep_name: selectedDepName.value || '',
+                doctor_id: doctorId.value || '',
+                doctor_name: selectedDoctorName.value || '',
+                member_id: memberId.value || '',
                 target_dates: Array.isArray(targetDates.value) ? targetDates.value : [],
                 preferred_hours: Array.isArray(preferredHours.value) ? preferredHours.value : [],
-                schedule_id: String(selectedScheduleId.value || ''),
+                schedule_id: selectedScheduleId.value || '',
                 time_types: Array.isArray(timeTypes.value) ? timeTypes.value : []
             }
 
