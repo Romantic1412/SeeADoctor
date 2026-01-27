@@ -358,6 +358,7 @@ export function useHospitalData() {
         addressText,
         selectedHospitalName,
         selectedDepName,
+        selectedDoctorName,
 
         loadCities,
         loadHospitals,

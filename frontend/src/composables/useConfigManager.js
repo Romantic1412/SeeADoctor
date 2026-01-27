@@ -10,7 +10,10 @@ export function useConfigManager() {
         unitId,
         depId,
         doctorId,
-        memberId
+        memberId,
+        selectedHospitalName,
+        selectedDepName,
+        selectedDoctorName
     } = useHospitalData()
     const {
         targetDates,
@@ -60,8 +63,11 @@ export function useConfigManager() {
         try {
             const config = {
                 unit_id: unitId.value,
+                unit_name: selectedHospitalName.value,
                 dep_id: depId.value,
+                dep_name: selectedDepName.value,
                 doctor_id: doctorId.value,
+                doctor_name: selectedDoctorName.value,
                 member_id: memberId.value,
                 target_dates: Array.isArray(targetDates.value) ? targetDates.value : [],
                 preferred_hours: Array.isArray(preferredHours.value) ? preferredHours.value : [],
