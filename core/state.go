@@ -65,6 +65,9 @@ func DefaultUserState() map[string]any {
 		"target_date": defaultTargetDate(),
 		"time_slots":  []string{"am", "pm"},
 		"proxy_submit_enabled": true,
+		"preferred_hours": []string{},
+		"schedule_id": "",
+		"time_types": []string{},
 	}
 }
 
@@ -140,6 +143,24 @@ func normalizeUserState(state map[string]any) map[string]any {
 		state["proxy_submit_enabled"] = normalizeBool(proxyValue, true)
 	} else {
 		state["proxy_submit_enabled"] = true
+	}
+
+	if hoursValue, ok := state["preferred_hours"]; ok {
+		state["preferred_hours"] = normalizeStringSlice(hoursValue)
+	} else {
+		state["preferred_hours"] = []string{}
+	}
+
+	if scheduleValue, ok := state["schedule_id"]; ok {
+		state["schedule_id"] = strings.TrimSpace(toString(scheduleValue))
+	} else {
+		state["schedule_id"] = ""
+	}
+
+	if typesValue, ok := state["time_types"]; ok {
+		state["time_types"] = normalizeStringSlice(typesValue)
+	} else {
+		state["time_types"] = []string{}
 	}
 
 	return state

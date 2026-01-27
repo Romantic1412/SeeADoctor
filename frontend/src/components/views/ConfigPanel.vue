@@ -1,5 +1,5 @@
 <script setup>
-import { computed, watch, ref } from 'vue'
+import { computed, watch, ref, onMounted } from 'vue'
 import { useHospitalData } from '../../composables/useHospitalData'
 import { useAuth } from '../../composables/useAuth'
 import { useGrabTask } from '../../composables/useGrabTask'
@@ -28,10 +28,17 @@ const {
   clearTargetDates,
   preferredHours,
   timeTypes,
-  selectedScheduleId
+  selectedScheduleId,
+  saveTaskConfig,
+  loadTaskConfig
 } = useGrabTask()
 
 const { pushLog, stringifyError } = useLogger()
+
+// Load saved configuration on mount
+onMounted(() => {
+  loadTaskConfig()
+})
 
 // Local UI state
 const dateInput = ref('')
@@ -195,6 +202,7 @@ const handleSelectSchedule = async (slot) => {
   } finally {
     timeSlotsLoading.value = false
   }
+  saveTaskConfig()
 }
 
 const togglePreferredHour = (name) => {
@@ -207,10 +215,12 @@ const togglePreferredHour = (name) => {
     set.add(value)
   }
   preferredHours.value = Array.from(set)
+  saveTaskConfig()
 }
 
 const clearPreferredHours = () => {
   preferredHours.value = []
+  saveTaskConfig()
 }
 
 const addManualPreferredHour = () => {
@@ -220,6 +230,8 @@ const addManualPreferredHour = () => {
   set.add(value)
   preferredHours.value = Array.from(set)
   manualTimeInput.value = ''
+  saveTaskConfig()
+  pushLog('success', '时段已添加并保存')
 }
 
 const syncTargetDateToSchedule = () => {

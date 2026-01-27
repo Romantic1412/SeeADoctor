@@ -1,9 +1,11 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import {
     GetCities,
     GetHospitalsByCity,
     GetDepsByUnit,
-    GetSchedule
+    GetSchedule,
+    GetUserState,
+    SaveUserState
 } from '../../wailsjs/go/main/App'
 import { useLogger } from './useLogger'
 import { useAuth } from './useAuth'
@@ -44,6 +46,52 @@ export function useHospitalData() {
     const selectedDepName = computed(() => {
         const match = deps.value.find((item) => item.id === depId.value)
         return match ? match.name : ''
+    })
+    const selectedDoctorName = computed(() => {
+        const match = doctors.value.find((item) => item.id === doctorId.value)
+        return match ? match.name : ''
+    })
+
+    // Save names to user state for Dashboard display
+    const saveSelectionNames = async () => {
+        try {
+            const state = await GetUserState() || {}
+            if (unitId.value) state.unit_id = unitId.value
+            if (depId.value) state.dep_id = depId.value
+            if (doctorId.value) state.doctor_id = doctorId.value
+            if (memberId.value) state.member_id = memberId.value
+            state.unit_name = selectedHospitalName.value
+            state.dep_name = selectedDepName.value
+            state.doctor_name = selectedDoctorName.value
+            await SaveUserState(state)
+        } catch (err) {
+            // Silent fail, not critical
+        }
+    }
+
+    // Watch for changes in selections and save names
+    watch([unitId, selectedHospitalName], () => {
+        if (unitId.value && selectedHospitalName.value) {
+            saveSelectionNames()
+        }
+    })
+
+    watch([depId, selectedDepName], () => {
+        if (depId.value && selectedDepName.value) {
+            saveSelectionNames()
+        }
+    })
+
+    watch([doctorId, selectedDoctorName], () => {
+        if (doctorId.value && selectedDoctorName.value) {
+            saveSelectionNames()
+        }
+    })
+
+    watch(memberId, () => {
+        if (memberId.value) {
+            saveSelectionNames()
+        }
     })
 
     // Helper to ensure selections are valid (e.g. if loaded list changes)
