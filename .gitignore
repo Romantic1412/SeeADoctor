@@ -17,3 +17,8 @@ cleanup_plan.md
 task.md
 walkthrough.md
 implementation_plan.md
+
+# claude
+.claude/
+.spec-workflow/
+CLAUDE.md
