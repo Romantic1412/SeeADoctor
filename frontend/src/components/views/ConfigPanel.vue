@@ -5,20 +5,24 @@ import { useAuth } from '../../composables/useAuth'
 import { useGrabTask } from '../../composables/useGrabTask'
 import { useLogger } from '../../composables/useLogger'
 import { useConfigManager } from '../../composables/useConfigManager'
+import { useMultiConfig } from '../../composables/useMultiConfig'
 import { GetTicketDetail } from '../../../wailsjs/go/main/App'
 import GlassCard from '../ui/GlassCard.vue'
 import NeonButton from '../ui/NeonButton.vue'
 import StatusBadge from '../ui/StatusBadge.vue'
 import Combobox from '../ui/Combobox.vue'
 
-const { 
+const {
   cities, selectedCity, loadCities,
   hospitals, unitId, loadHospitals, loadingHospitals,
   deps, depId, loadDeps, loadingDeps,
   doctors, doctorId, loadDoctors, loadingDoctors,
   doctorPool, loadDoctorPool, loadingDoctorPool,
   memberId,
-  loadingCities
+  loadingCities,
+  selectedHospitalName,
+  selectedDepName,
+  selectedDoctorName
 } = useHospitalData()
 
 const { members, loadMembers, loggedIn, loginChecked, userState, saveUserState, stateReady } = useAuth()
@@ -31,13 +35,19 @@ const {
   timeTypes,
   selectedScheduleId,
   saveTaskConfig,
-  loadTaskConfig
+  loadTaskConfig,
+  startTime,
+  useServerTime,
+  preGrabTestEnabled,
+  preGrabTestOffsetSeconds
 } = useGrabTask()
 
 const { pushLog, stringifyError } = useLogger()
 
 // Load saved configuration on mount
-onMounted(() => {
+onMounted(async () => {
+  await loadProfiles() // Load profiles first
+  await loadConfiguration() // Load active profile data
   loadTaskConfig()
 })
 
@@ -48,6 +58,91 @@ const timeSlotsLoading = ref(false)
 const doctorRangeDays = ref(3)
 const manualTimeInput = ref('')
 const proxySubmitEnabled = ref(true)
+
+// Multi-Config
+const {
+  profiles,
+  activeProfileId,
+  loading: profilesLoading,
+  loadProfiles,
+  switchProfile,
+  createProfile,
+  deleteProfile,
+  patchConfig
+} = useMultiConfig()
+
+const creatingProfile = ref(false)
+const newProfileName = ref('')
+
+const handleCreateProfile = async () => {
+  if (!newProfileName.value) return
+  creatingProfile.value = true
+  try {
+    // Current UI state as initial config
+    const currentConfig = {
+      unit_id: unitId.value || '',
+      unit_name: selectedHospitalName.value || '',
+      dep_id: depId.value || '',
+      dep_name: selectedDepName.value || '',
+      doctor_id: doctorId.value || '',
+      doctor_name: selectedDoctorName.value || '',
+      member_id: memberId.value || '',
+      target_dates: targetDates.value,
+      preferred_hours: preferredHours.value,
+      schedule_id: selectedScheduleId.value,
+      time_types: timeTypes.value,
+      proxy_submit_enabled: proxySubmitEnabled.value
+    }
+    await createProfile(newProfileName.value, currentConfig)
+    newProfileName.value = ''
+  } finally {
+    creatingProfile.value = false
+  }
+}
+
+const handleDeleteProfile = async () => {
+  if (!confirm('确定要删除当前配置吗？')) return
+  await deleteProfile(activeProfileId.value)
+}
+
+// Partial Updates
+const handleUpdateHospital = async () => {
+  await patchConfig({
+    unit_id: unitId.value || '',
+    unit_name: selectedHospitalName.value || '',
+    dep_id: depId.value || '',
+    dep_name: selectedDepName.value || ''
+  })
+}
+
+const handleUpdateDoctor = async () => {
+  await patchConfig({
+    doctor_id: doctorId.value || '',
+    doctor_name: selectedDoctorName.value || ''
+  })
+}
+
+const handleUpdateDate = async () => {
+  await patchConfig({
+    target_dates: targetDates.value
+  })
+}
+
+const handleUpdateMember = async () => {
+  await patchConfig({
+    member_id: memberId.value || ''
+  })
+}
+
+const handleUpdateTiming = async () => {
+  await patchConfig({
+    start_time: startTime.value || '',
+    use_server_time: useServerTime.value,
+    pre_grab_test_enabled: preGrabTestEnabled.value,
+    pre_grab_test_offset_seconds: Number(preGrabTestOffsetSeconds.value) || 60
+  })
+}
+
 
 watch(targetDates, (list) => {
   const value = Array.isArray(list) && list.length > 0 ? list[0] : ''
@@ -257,11 +352,9 @@ const { loadConfiguration, saveConfiguration, loading: configLoading } = useConf
 
 const handleLoadConfig = async () => {
   await loadConfiguration()
-  // Reload cities, hospitals, and deps after loading configuration
+  // Watchers on selectedCity and unitId will handle reloading lists
   if (loginChecked.value && loggedIn.value) {
     if (cities.value.length === 0) await loadCities()
-    if (unitId.value && hospitals.value.length === 0) await loadHospitals(selectedCity.value)
-    if (unitId.value && deps.value.length === 0) await loadDeps(unitId.value)
   }
 }
 
@@ -274,36 +367,48 @@ const handleSaveConfig = async () => {
 <template>
   <div class="space-y-6 pb-20">
     <!-- Configuration Management -->
-    <GlassCard title="配置管理" className="relative z-40">
-      <div class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-        <div class="flex-1">
-          <p class="text-sm text-slate-400">快速加载或保存当前配置，方便下次使用时只修改少量参数（如日期）</p>
+    <GlassCard title="配置档案" className="relative z-40">
+      <div class="flex flex-col gap-4">
+        <!-- Profile Selector -->
+        <div class="flex items-center gap-3">
+          <div class="flex-1">
+             <select
+               :value="activeProfileId"
+               @change="switchProfile($event.target.value)"
+               class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-500/50 outline-none"
+               :disabled="profilesLoading"
+             >
+                <option v-for="p in profiles" :key="p.id" :value="p.id">
+                   {{ p.name }} {{ p.active ? '(当前)' : '' }}
+                </option>
+             </select>
+          </div>
+          <NeonButton size="sm" variant="danger" @click="handleDeleteProfile" :disabled="profiles.length <= 1">
+             删除
+          </NeonButton>
         </div>
-        <div class="flex gap-2">
-          <NeonButton
-            @click="handleLoadConfig"
-            :loading="configLoading"
-            :disabled="!loginChecked || !loggedIn"
-            variant="ghost"
-            size="sm"
-          >
-            <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            加载配置
-          </NeonButton>
-          <NeonButton
-            @click="handleSaveConfig"
-            :loading="configLoading"
-            :disabled="!loginChecked || !loggedIn"
-            variant="primary"
-            size="sm"
-          >
-            <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-            </svg>
-            保存配置
-          </NeonButton>
+
+        <!-- New Profile -->
+        <div class="flex items-center gap-3 pt-3 border-t border-white/5">
+           <input
+             type="text"
+             v-model="newProfileName"
+             placeholder="新配置名称..."
+             class="glass-input flex-1 py-1.5 text-sm"
+             @keyup.enter="handleCreateProfile"
+           />
+           <NeonButton size="sm" variant="primary" @click="handleCreateProfile" :loading="creatingProfile" :disabled="!newProfileName">
+              新建配置
+           </NeonButton>
+        </div>
+
+        <!-- Legacy Actions -->
+        <div class="flex items-center justify-between pt-3 border-t border-white/5">
+           <span class="text-xs text-slate-500">操作当前配置</span>
+           <div class="flex gap-2">
+              <NeonButton size="xs" variant="ghost" @click="handleLoadConfig" :loading="configLoading">重置未保存更改</NeonButton>
+              <NeonButton size="xs" variant="primary" @click="handleSaveConfig" :loading="configLoading">保存全部设置</NeonButton>
+           </div>
         </div>
       </div>
     </GlassCard>
@@ -313,6 +418,11 @@ const handleSaveConfig = async () => {
 
        <!-- Location & Hospital -->
        <GlassCard title="医院设置" className="relative z-30">
+          <template #action>
+             <button class="text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors" @click="handleUpdateHospital">
+                ✓ 仅更新此栏
+             </button>
+          </template>
           <div class="space-y-4">
              <Combobox
                 label="城市"
@@ -351,6 +461,16 @@ const handleSaveConfig = async () => {
 
        <!-- Patient & Dates -->
        <GlassCard title="就诊信息" className="relative z-20">
+          <template #action>
+             <div class="flex gap-2">
+                <button class="text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors" @click="handleUpdateMember">
+                  ✓ 更新就诊人
+                </button>
+                <button class="text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors" @click="handleUpdateDate">
+                  ✓ 更新日期
+                </button>
+             </div>
+          </template>
           <div class="space-y-4">
              <div>
                 <label class="block text-xs text-slate-400 mb-1.5 uppercase">就诊人</label>
@@ -391,9 +511,60 @@ const handleSaveConfig = async () => {
              关闭后提交仅走本地 IP，可能更容易触发“过于频繁”
           </div>
        </GlassCard>
-       
+
+       <!-- Scheduled Grab -->
+       <GlassCard title="定时抢号" className="lg:col-span-2 relative z-10">
+          <template #action>
+             <button class="text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors" @click="handleUpdateTiming">
+                ✓ 更新定时设置
+             </button>
+          </template>
+
+          <div class="space-y-4">
+             <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+                <div class="flex-1 w-full sm:w-auto">
+                   <label class="block text-xs text-slate-400 mb-1.5">开始时间 (HH:MM:SS)</label>
+                   <input type="time" step="1" v-model="startTime" class="glass-input w-full" placeholder="00:00:00" />
+                </div>
+
+                <div class="flex gap-4 pt-4">
+                   <label class="inline-flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" v-model="useServerTime" class="rounded bg-white/5 border-white/10 text-indigo-500 focus:ring-indigo-500/50" />
+                      <span class="text-xs text-slate-300">使用网络时间</span>
+                   </label>
+
+                   <label class="inline-flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" v-model="preGrabTestEnabled" class="rounded bg-white/5 border-white/10 text-emerald-500 focus:ring-emerald-500/50" />
+                      <span class="text-xs text-slate-300">防掉线预检</span>
+                   </label>
+                </div>
+             </div>
+
+             <div v-if="preGrabTestEnabled" class="bg-emerald-500/5 border border-emerald-500/10 rounded-lg p-3">
+                <div class="flex items-center gap-3">
+                   <span class="text-xs text-emerald-400">提前</span>
+                   <input
+                     type="number"
+                     v-model="preGrabTestOffsetSeconds"
+                     class="glass-input w-20 py-1 text-center text-xs"
+                     min="10"
+                   />
+                   <span class="text-xs text-emerald-400">秒进行连接测试</span>
+                </div>
+                <div class="text-[10px] text-emerald-500/60 mt-1">
+                   在正式抢号前尝试获取排班数据，激活连接并验证 Cookie 有效性，不提交订单。
+                </div>
+             </div>
+          </div>
+       </GlassCard>
+
        <!-- Doctor Schedule Check (Optional) -->
        <GlassCard title="排班查询 (可选)" className="lg:col-span-2 relative z-10">
+          <template #action>
+             <button class="text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors" @click="handleUpdateDoctor">
+                ✓ 更新医生设置
+             </button>
+          </template>
           <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between p-1">
              <div class="flex-1 w-full sm:w-auto">
                 <label class="block text-xs text-slate-400 mb-1.5">查询日期</label>

@@ -16,6 +16,15 @@ func LogsDir() (string, error) {
 	return resolveLogsDir()
 }
 
+// GrabProfilesPath 返回抢号配置档案文件路径
+func GrabProfilesPath() (string, error) {
+	configDir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "grab_profiles.json"), nil
+}
+
 func resolveConfigDir() (string, error) {
 	if dir := os.Getenv(configDirEnv); dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {

@@ -67,7 +67,47 @@ func (g *Grabber) Run(ctx context.Context, input map[string]any, onLog func(leve
 		emitLog(onLog, "info", "time_types 未设置，默认 am/pm")
 	}
 	if config.StartTime != "" {
-		waitUntil(ctx, config.StartTime, g.client, config.UseServerTime, onLog)
+		// Parse StartTime to absolute time (Today)
+		now := time.Now()
+		parsedStart, err := time.Parse("15:04:05", config.StartTime)
+		if err != nil {
+			emitLog(onLog, "error", fmt.Sprintf("invalid start_time format: %s", config.StartTime))
+			return GrabResult{Success: false, Message: "invalid start_time", Err: err}
+		}
+		targetTime := time.Date(now.Year(), now.Month(), now.Day(), parsedStart.Hour(), parsedStart.Minute(), parsedStart.Second(), 0, now.Location())
+
+		// Pre-grab test logic
+		if config.PreGrabTestEnabled {
+			offset := config.PreGrabTestOffsetSeconds
+			if offset <= 0 {
+				offset = 60
+			}
+
+			// Calculate absolute pre-test time
+			preTestTime := targetTime.Add(-time.Duration(offset) * time.Second)
+
+			emitLog(onLog, "info", fmt.Sprintf("waiting for pre-grab test at %s (-%ds)", preTestTime.Format("15:04:05"), offset))
+			waitUntil(ctx, preTestTime, g.client, config.UseServerTime, onLog)
+
+			if ctx.Err() == nil {
+				emitLog(onLog, "info", "starting pre-grab test (query only)")
+				ok, err := g.testGrabOnce(ctx, config, onLog)
+				if err != nil {
+					emitLog(onLog, "warn", fmt.Sprintf("pre-grab test failed: %v", err))
+				} else if ok {
+					emitLog(onLog, "success", "pre-grab test connection OK")
+				} else {
+					emitLog(onLog, "warn", "pre-grab test: no schedule found (connection OK)")
+				}
+			}
+		}
+
+		if ctx.Err() != nil {
+			return GrabResult{Success: false, Message: "stopped", Err: ctx.Err()}
+		}
+
+		emitLog(onLog, "info", fmt.Sprintf("waiting for target time: %s", config.StartTime))
+		waitUntil(ctx, targetTime, g.client, config.UseServerTime, onLog)
 		if ctx.Err() != nil {
 			return GrabResult{Success: false, Message: "stopped", Err: ctx.Err()}
 		}
@@ -105,6 +145,26 @@ func (g *Grabber) Run(ctx context.Context, input map[string]any, onLog func(leve
 		}
 	}
 }
+
+func (g *Grabber) testGrabOnce(ctx context.Context, config GrabConfig, onLog func(level, message string)) (bool, error) {
+	if len(config.TargetDates) == 0 {
+		return false, nil
+	}
+	// Only query the first date to test connection
+	date := config.TargetDates[0]
+	unitID := config.UnitID
+	depID := config.DepID
+
+	emitLog(onLog, "info", fmt.Sprintf("pre-grab test query: %s", date))
+	docs, err := g.client.GetSchedule(unitID, depID, date)
+	if err != nil {
+		return false, err
+	}
+	return len(docs) > 0, nil
+}
+
+// calculatePreTestTime removed as logic moved to Run
+// func calculatePreTestTime(targetTimeStr string, offsetSeconds int) (string, error) { ... }
 
 func (g *Grabber) tryGrabOnce(ctx context.Context, config GrabConfig, onLog func(level, message string)) (*GrabSuccess, error) {
 	unitID := config.UnitID
@@ -544,22 +604,18 @@ func normalizeAddressText(value string) string {
 	return value
 }
 
-func waitUntil(ctx context.Context, targetTime string, client *HealthClient, useServerTime bool, onLog func(level, message string)) {
-	parsed, err := time.Parse("15:04:05", targetTime)
-	if err != nil {
-		emitLog(onLog, "error", fmt.Sprintf("invalid time format: %s", targetTime))
-		return
-	}
-
+func waitUntil(ctx context.Context, targetTime time.Time, client *HealthClient, useServerTime bool, onLog func(level, message string)) {
 	now := time.Now()
-	target := time.Date(now.Year(), now.Month(), now.Day(), parsed.Hour(), parsed.Minute(), parsed.Second(), 0, now.Location())
+	// targetTime is already absolute
+
 	offset := time.Duration(0)
 	if useServerTime && client != nil {
 		offset = calibrateTimeOffset(client, onLog)
 	}
-	adjusted := target.Add(-offset)
+	adjusted := targetTime.Add(-offset)
+
 	if adjusted.Before(now) || adjusted.Equal(now) {
-		emitLog(onLog, "warn", fmt.Sprintf("target time already passed: %s", targetTime))
+		emitLog(onLog, "warn", fmt.Sprintf("target time already passed: %s", targetTime.Format("15:04:05")))
 		return
 	}
 	wait := adjusted.Sub(now)

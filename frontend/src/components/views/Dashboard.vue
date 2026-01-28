@@ -1,16 +1,17 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useAuth } from '../../composables/useAuth'
 import { useGrabTask } from '../../composables/useGrabTask'
 import { useHospitalData } from '../../composables/useHospitalData'
 import { useConfigManager } from '../../composables/useConfigManager'
+import { useMultiConfig } from '../../composables/useMultiConfig'
 import GlassCard from '../ui/GlassCard.vue'
 import NeonButton from '../ui/NeonButton.vue'
 import StatusBadge from '../ui/StatusBadge.vue'
 
-const { 
-  loggedIn, 
-  loginChecked, 
+const {
+  loggedIn,
+  loginChecked,
   qrImageUrl, 
   qrStatus, 
   loginRunning, 
@@ -26,8 +27,18 @@ const {
   targetDates,
   preferredHours,
   timeTypes,
-  selectedScheduleId
+  selectedScheduleId,
+  startTime,
+  useServerTime,
+  preGrabTestEnabled,
+  preGrabTestOffsetSeconds
 } = useGrabTask()
+
+const { activeProfileName, loadProfiles } = useMultiConfig()
+
+onMounted(() => {
+  loadProfiles()
+})
 
 // Status Derivations
 const loginBtnLabel = computed(() => {
@@ -40,6 +51,9 @@ const grabBtnLabel = computed(() => grabRunning.value ? '停止抢号' : '开始
 
 // Simple summary
 const configSummary = computed(() => {
+  if (activeProfileName.value) {
+    return activeProfileName.value
+  }
   const parts = []
   if (userState.value?.unit_name) parts.push(userState.value.unit_name)
   if (userState.value?.dep_name) parts.push(userState.value.dep_name)
@@ -86,7 +100,13 @@ const proxySubmitEnabled = computed(() => {
         // ... buildGrabConfig(rawConfig) checks rawConfig.target_dates.
         // So we need to pass it.
         target_dates: targetDates.value,
-        use_proxy_submit: proxySubmitEnabled.value
+        use_proxy_submit: proxySubmitEnabled.value,
+
+        // Timing Config
+        start_time: startTime.value,
+        use_server_time: useServerTime.value,
+        pre_grab_test_enabled: preGrabTestEnabled.value,
+        pre_grab_test_offset_seconds: Number(preGrabTestOffsetSeconds.value)
      }
 
      if (hasPreciseSelection.value) {

@@ -243,3 +243,104 @@ func normalizeStringSlice(value any) []string {
 func defaultTargetDate() string {
 	return time.Now().AddDate(0, 0, 7).Format("2006-01-02")
 }
+
+// LoadGrabProfiles 加载配置仓库
+func LoadGrabProfiles() (*ConfigStore, error) {
+	path, err := GrabProfilesPath()
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// 首次使用,尝试从 user_state.json 迁移
+			return MigrateFromUserState()
+		}
+		return nil, err
+	}
+
+	var store ConfigStore
+	if err := json.Unmarshal(data, &store); err != nil {
+		return nil, err
+	}
+
+	// 验证数据完整性
+	if store.Version == 0 {
+		store.Version = 1
+	}
+	if store.ActiveID == "" && len(store.Profiles) > 0 {
+		store.ActiveID = store.Profiles[0].ID
+	}
+
+	return &store, nil
+}
+
+// SaveGrabProfiles 保存配置仓库
+func SaveGrabProfiles(store *ConfigStore) error {
+	if store == nil {
+		return errors.New("store is nil")
+	}
+
+	path, err := GrabProfilesPath()
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(store, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, data, 0o644)
+}
+
+// MigrateFromUserState 从 user_state.json 迁移到新的配置仓库
+func MigrateFromUserState() (*ConfigStore, error) {
+	userState, err := LoadUserState()
+	if err != nil {
+		return nil, err
+	}
+
+	// 创建默认配置
+	defaultProfile := ConfigProfile{
+		ID:        "default",
+		Name:      "默认配置",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Config: GrabConfig{
+			UnitID:         toString(userState["unit_id"]),
+			UnitName:       toString(userState["unit_name"]),
+			DepID:          toString(userState["dep_id"]),
+			DepName:        toString(userState["dep_name"]),
+			MemberID:       toString(userState["member_id"]),
+			TargetDates:    normalizeStringSlice(userState["target_dates"]),
+			PreferredHours: normalizeStringSlice(userState["preferred_hours"]),
+			TimeTypes:      normalizeStringSlice(userState["time_types"]),
+			UseProxySubmit: normalizeBool(userState["proxy_submit_enabled"], true),
+		},
+	}
+
+	// 处理 doctor_id 字段
+	if doctorID := toString(userState["doctor_id"]); doctorID != "" {
+		defaultProfile.Config.DoctorIDs = []string{doctorID}
+	}
+
+	// 创建配置仓库
+	store := &ConfigStore{
+		Version:  1,
+		ActiveID: "default",
+		Profiles: []ConfigProfile{defaultProfile},
+	}
+
+	// 保存新配置文件
+	if err := SaveGrabProfiles(store); err != nil {
+		return nil, err
+	}
+
+	return store, nil
+}

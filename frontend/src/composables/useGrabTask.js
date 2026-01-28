@@ -11,6 +11,12 @@ const preferredHours = ref([])
 const timeTypes = ref([])
 const selectedScheduleId = ref('')
 
+// Timing Configuration
+const startTime = ref('')
+const useServerTime = ref(true)
+const preGrabTestEnabled = ref(true)
+const preGrabTestOffsetSeconds = ref(60)
+
 export function useGrabTask() {
     const { pushLog, stringifyError } = useLogger()
 
@@ -22,6 +28,12 @@ export function useGrabTask() {
             state.time_types = Array.isArray(timeTypes.value) ? timeTypes.value : []
             state.schedule_id = String(selectedScheduleId.value || '')
             state.target_dates = Array.isArray(targetDates.value) ? targetDates.value : []
+            // Save timing configs (for legacy state file)
+            state.start_time = startTime.value
+            state.use_server_time = useServerTime.value
+            state.pre_grab_test_enabled = preGrabTestEnabled.value
+            state.pre_grab_test_offset_seconds = preGrabTestOffsetSeconds.value
+
             await SaveUserState(state)
         } catch (err) {
             pushLog('error', `保存配置失败: ${stringifyError(err)}`)
@@ -43,6 +55,10 @@ export function useGrabTask() {
             if (Array.isArray(state.target_dates)) {
                 targetDates.value = state.target_dates
             }
+            if (state.start_time) startTime.value = state.start_time
+            if (state.use_server_time !== undefined) useServerTime.value = state.use_server_time
+            if (state.pre_grab_test_enabled !== undefined) preGrabTestEnabled.value = state.pre_grab_test_enabled
+            if (state.pre_grab_test_offset_seconds !== undefined) preGrabTestOffsetSeconds.value = state.pre_grab_test_offset_seconds
         } catch (err) {
             pushLog('error', `加载配置失败: ${stringifyError(err)}`)
         }

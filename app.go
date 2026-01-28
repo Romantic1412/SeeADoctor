@@ -27,6 +27,7 @@ type App struct {
 	grabMu     sync.Mutex
 	grabCancel context.CancelFunc
 	grabToken  uint64
+	profileMu  sync.RWMutex // Protects profile file I/O and state
 }
 
 type LogEntry struct {
@@ -78,75 +79,250 @@ func (a *App) SaveUserState(state map[string]any) error {
 	return core.SaveUserState(state)
 }
 
-func (a *App) LoadGrabConfig() (map[string]any, error) {
-	state, err := core.LoadUserState()
+// -----------------------------------------------------------------------------
+// New Profile Management APIs
+// -----------------------------------------------------------------------------
+
+func (a *App) ListGrabProfiles() ([]map[string]any, error) {
+	a.profileMu.RLock()
+	defer a.profileMu.RUnlock()
+
+	store, err := core.LoadGrabProfiles()
 	if err != nil {
 		return nil, err
 	}
-	// Extract grab-related configuration
-	config := map[string]any{
-		"unit_id":              state["unit_id"],
-		"unit_name":            state["unit_name"],
-		"dep_id":               state["dep_id"],
-		"dep_name":             state["dep_name"],
-		"doctor_id":            state["doctor_id"],
-		"doctor_name":          state["doctor_name"],
-		"member_id":            state["member_id"],
-		"target_dates":         state["target_dates"],
-		"preferred_hours":      state["preferred_hours"],
-		"schedule_id":          state["schedule_id"],
-		"time_types":           state["time_types"],
-		"proxy_submit_enabled": state["proxy_submit_enabled"],
+	list := make([]map[string]any, 0, len(store.Profiles))
+	for _, p := range store.Profiles {
+		list = append(list, map[string]any{
+			"id":         p.ID,
+			"name":       p.Name,
+			"active":     p.ID == store.ActiveID,
+			"updated_at": p.UpdatedAt.Format(time.RFC3339),
+		})
 	}
-	return config, nil
+	return list, nil
+}
+
+func (a *App) GetActiveGrabProfile() (map[string]any, error) {
+	a.profileMu.RLock()
+	defer a.profileMu.RUnlock()
+
+	store, err := core.LoadGrabProfiles()
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range store.Profiles {
+		if p.ID == store.ActiveID {
+			// Convert struct to map for frontend
+			data, err := json.Marshal(p.Config)
+			if err != nil {
+				return nil, fmt.Errorf("marshal config failed: %w", err)
+			}
+			var configMap map[string]any
+			if err := json.Unmarshal(data, &configMap); err != nil {
+				return nil, fmt.Errorf("unmarshal config failed: %w", err)
+			}
+			if configMap == nil {
+				configMap = make(map[string]any)
+			}
+			// Inject metadata
+			configMap["_profile_id"] = p.ID
+			configMap["_profile_name"] = p.Name
+			return configMap, nil
+		}
+	}
+	return nil, errors.New("no active profile found")
+}
+
+func (a *App) SetActiveGrabProfile(profileID string) error {
+	a.profileMu.Lock()
+	defer a.profileMu.Unlock()
+
+	store, err := core.LoadGrabProfiles()
+	if err != nil {
+		return err
+	}
+
+	found := false
+	for _, p := range store.Profiles {
+		if p.ID == profileID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return errors.New("profile not found")
+	}
+
+	store.ActiveID = profileID
+	return core.SaveGrabProfiles(store)
+}
+
+func (a *App) CreateGrabProfile(name string, config map[string]any) (string, error) {
+	a.profileMu.Lock()
+	defer a.profileMu.Unlock()
+
+	store, err := core.LoadGrabProfiles()
+	if err != nil {
+		return "", err
+	}
+
+	// Generate ID (timestamp + random suffix)
+	id := fmt.Sprintf("cfg-%d", time.Now().UnixNano())
+
+	// Parse config map to struct
+	configBytes, err := json.Marshal(config)
+	if err != nil {
+		return "", fmt.Errorf("marshal config failed: %w", err)
+	}
+	var grabConfig core.GrabConfig
+	if err := json.Unmarshal(configBytes, &grabConfig); err != nil {
+		return "", fmt.Errorf("unmarshal config failed: %w", err)
+	}
+
+	newProfile := core.ConfigProfile{
+		ID:        id,
+		Name:      name,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Config:    grabConfig,
+	}
+
+	store.Profiles = append(store.Profiles, newProfile)
+	store.ActiveID = id // Auto-switch to new profile
+
+	if err := core.SaveGrabProfiles(store); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func (a *App) UpdateGrabProfile(profileID string, config map[string]any) error {
+	a.profileMu.Lock()
+	defer a.profileMu.Unlock()
+
+	store, err := core.LoadGrabProfiles()
+	if err != nil {
+		return err
+	}
+
+	for i := range store.Profiles {
+		if store.Profiles[i].ID == profileID {
+			configBytes, err := json.Marshal(config)
+			if err != nil {
+				return fmt.Errorf("marshal config failed: %w", err)
+			}
+			var grabConfig core.GrabConfig
+			if err := json.Unmarshal(configBytes, &grabConfig); err != nil {
+				return fmt.Errorf("unmarshal config failed: %w", err)
+			}
+			store.Profiles[i].Config = grabConfig
+			store.Profiles[i].UpdatedAt = time.Now()
+			return core.SaveGrabProfiles(store)
+		}
+	}
+	return errors.New("profile not found")
+}
+
+func (a *App) PatchGrabProfile(profileID string, updates map[string]any) error {
+	a.profileMu.Lock()
+	defer a.profileMu.Unlock()
+
+	store, err := core.LoadGrabProfiles()
+	if err != nil {
+		return err
+	}
+
+	for i := range store.Profiles {
+		if store.Profiles[i].ID == profileID {
+			// Convert current config to map
+			currentBytes, err := json.Marshal(store.Profiles[i].Config)
+			if err != nil {
+				return fmt.Errorf("marshal current config failed: %w", err)
+			}
+			var currentMap map[string]any
+			if err := json.Unmarshal(currentBytes, &currentMap); err != nil {
+				return fmt.Errorf("unmarshal current config failed: %w", err)
+			}
+			if currentMap == nil {
+				currentMap = make(map[string]any)
+			}
+
+			// Merge updates
+			for k, v := range updates {
+				currentMap[k] = v
+			}
+
+			// Convert back to struct
+			mergedBytes, err := json.Marshal(currentMap)
+			if err != nil {
+				return fmt.Errorf("marshal merged config failed: %w", err)
+			}
+			var newConfig core.GrabConfig
+			if err := json.Unmarshal(mergedBytes, &newConfig); err != nil {
+				return fmt.Errorf("unmarshal merged config failed: %w", err)
+			}
+
+			store.Profiles[i].Config = newConfig
+			store.Profiles[i].UpdatedAt = time.Now()
+			return core.SaveGrabProfiles(store)
+		}
+	}
+	return errors.New("profile not found")
+}
+
+func (a *App) DeleteGrabProfile(profileID string) error {
+	a.profileMu.Lock()
+	defer a.profileMu.Unlock()
+
+	store, err := core.LoadGrabProfiles()
+	if err != nil {
+		return err
+	}
+
+	if len(store.Profiles) <= 1 {
+		return errors.New("cannot delete the last profile")
+	}
+
+	newProfiles := make([]core.ConfigProfile, 0, len(store.Profiles)-1)
+	for _, p := range store.Profiles {
+		if p.ID != profileID {
+			newProfiles = append(newProfiles, p)
+		}
+	}
+
+	if len(newProfiles) == len(store.Profiles) {
+		return errors.New("profile not found")
+	}
+
+	store.Profiles = newProfiles
+
+	// If active profile was deleted, switch to the first available
+	if store.ActiveID == profileID {
+		store.ActiveID = store.Profiles[0].ID
+	}
+
+	return core.SaveGrabProfiles(store)
+}
+
+func (a *App) LoadGrabConfig() (map[string]any, error) {
+	// 兼容旧逻辑: 直接返回当前激活的配置
+	return a.GetActiveGrabProfile()
 }
 
 func (a *App) SaveGrabConfig(config map[string]any) error {
 	if config == nil {
-		return nil // Nothing to save
+		return nil
 	}
-	state, err := core.LoadUserState()
+	a.profileMu.RLock()
+	store, err := core.LoadGrabProfiles()
+	a.profileMu.RUnlock()
+
 	if err != nil {
 		return err
 	}
-	// Merge grab configuration into state
-	if val, ok := config["unit_id"]; ok {
-		state["unit_id"] = val
-	}
-	if val, ok := config["unit_name"]; ok {
-		state["unit_name"] = val
-	}
-	if val, ok := config["dep_id"]; ok {
-		state["dep_id"] = val
-	}
-	if val, ok := config["dep_name"]; ok {
-		state["dep_name"] = val
-	}
-	if val, ok := config["doctor_id"]; ok {
-		state["doctor_id"] = val
-	}
-	if val, ok := config["doctor_name"]; ok {
-		state["doctor_name"] = val
-	}
-	if val, ok := config["member_id"]; ok {
-		state["member_id"] = val
-	}
-	if val, ok := config["target_dates"]; ok {
-		state["target_dates"] = val
-	}
-	if val, ok := config["preferred_hours"]; ok {
-		state["preferred_hours"] = val
-	}
-	if val, ok := config["schedule_id"]; ok {
-		state["schedule_id"] = val
-	}
-	if val, ok := config["time_types"]; ok {
-		state["time_types"] = val
-	}
-	if val, ok := config["proxy_submit_enabled"]; ok {
-		state["proxy_submit_enabled"] = val
-	}
-	return core.SaveUserState(state)
+	// 兼容旧逻辑: 更新当前激活配置 (使用 Patch 逻辑以支持部分更新)
+	return a.PatchGrabProfile(store.ActiveID, config)
 }
 
 func (a *App) ExportLogs(entries []LogEntry) (string, error) {
